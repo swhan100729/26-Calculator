@@ -1,93 +1,33 @@
 import io
 import json
 import math
-import random
-from datetime import datetime
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 import streamlit as st
 
 # ---------------------------------------------------------
-# 1. 페이지 기본 설정 및 반응형 CSS 스타일
+# 1. 페이지 기본 설정 및 인스타 감성 반응형 CSS 스타일
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="감정 팔레트 | Emotion Palette",
+    page_title="My Emotion Palette",
     page_icon="🎨",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.markdown(
-    """
-    <style>
-    /* 반응형 레이아웃 및 카드 디자인 */
-    .block-container {
-        padding-top: 1.5rem;
-        padding-bottom: 2rem;
-        max-width: 1200px;
-    }
-    .main-title {
-        font-size: clamp(1.6rem, 3vw, 2.3rem);
-        font-weight: 800;
-        margin-bottom: 0.2rem;
-    }
-    .sub-title {
-        font-size: clamp(0.95rem, 1.5vw, 1.1rem);
-        color: #666666;
-        margin-bottom: 1.2rem;
-    }
-    .center-badge {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 44px;
-        border-radius: 10px;
-        background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #a1c4fd 100%);
-        color: #222222;
-        font-weight: 700;
-        font-size: 0.85rem;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-    }
-    .slot-preview {
-        border-radius: 8px;
-        padding: 4px 6px;
-        text-align: center;
-        font-size: 0.78rem;
-        font-weight: 600;
-        margin-top: -8px;
-        margin-bottom: 8px;
-        border: 1px solid rgba(0,0,0,0.08);
-    }
-    .stat-card {
-        background-color: rgba(128, 128, 128, 0.08);
-        border-radius: 12px;
-        padding: 1rem;
-        text-align: center;
-        margin-bottom: 0.8rem;
-    }
-    @media (max-width: 768px) {
-        .block-container {
-            padding-left: 0.8rem;
-            padding-right: 0.8rem;
-        }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 # ---------------------------------------------------------
-# 2. 상수 및 기본 데이터 정의 (대표 감정 & 5x5 그리드 배치)
+# 2. 상수 및 기본 데이터 정의 (대표 감정 9종 & 5x5 그리드)
 # ---------------------------------------------------------
 PRESET_EMOTIONS = {
-    "😊 기쁨 / 행복": "#FFD43B",
-    "🥰 설렘 / 사랑": "#FF6B8B",
-    "🌿 평온 / 힐링": "#51CF66",
-    "😢 슬픔 / 우울": "#339AF0",
-    "😡 화남 / 스트레스": "#FF4D4D",
-    "😴 피곤 / 무기력": "#9775FA",
-    "🤔 집중 / 차분": "#20C997",
-    "🎨 직접 색상 선택": "#FF922B",
+    "행복": "#FFE066",
+    "설렘": "#FF9EBB",
+    "평온": "#8CE99A",
+    "슬픔": "#74C0FC",
+    "화남": "#FF6B6B",
+    "집중": "#63E6BE",
+    "열정": "#FFA94D",
+    "사랑": "#F783AC",
+    "직접 선택": "#B197FC",
 }
 
 # 스케치와 동일한 5x5 그리드 배치 (가운데 칸은 None)
@@ -106,24 +46,24 @@ for r_idx, row in enumerate(GRID_5X5_LAYOUT):
         if hr is not None:
             HOUR_TO_5X5_COORD[hr] = (c_idx / 4.0, r_idx / 4.0)
 
-RANGE_OPTIONS = {
-    "하루 (24시간)": 1,
-    "일주일 (7일)": 7,
-    "한 달 (30일)": 30,
-    "일 년 (365일)": 365,
-}
+PERIOD_OPTIONS = [
+    {"label": "24 hours", "days": 1},
+    {"label": "1 week", "days": 7},
+    {"label": "1 month", "days": 30},
+    {"label": "1 year", "days": 365},
+]
 
 SHAPE_OPTIONS = [
-    "둥근 사각형 (기본)",
-    "하트 (Heart)",
-    "별 (Star)",
-    "원형 (Circle)",
-    "네잎클로버 (Clover)",
+    "Rounded Square",
+    "Heart",
+    "Star",
+    "Circle",
+    "Clover",
 ]
 
 
 # ---------------------------------------------------------
-# 3. 유틸리티 함수 (색상 변환, 샘플 데이터, 그라데이션 & 도형 생성)
+# 3. 유틸리티 함수 (색상 변환, 그라데이션 & 도형 생성)
 # ---------------------------------------------------------
 def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     hex_color = hex_color.lstrip("#")
@@ -133,7 +73,7 @@ def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
 def get_contrast_text_color(hex_color: str) -> str:
     r, g, b = hex_to_rgb(hex_color)
     luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-    return "#111111" if luminance > 0.6 else "#FFFFFF"
+    return "#2B2629" if luminance > 0.62 else "#FFFFFF"
 
 
 def init_session_state():
@@ -143,49 +83,227 @@ def init_session_state():
         st.session_state.selected_hour = 1
     if "selected_day" not in st.session_state:
         st.session_state.selected_day = 0
+    if "selected_period" not in st.session_state:
+        st.session_state.selected_period = "24 hours"
+    if "confirm_reset_fallback" not in st.session_state:
+        st.session_state.confirm_reset_fallback = False
 
 
-def load_sketch_example():
-    """스케치 예시(3시 빨강, 11시 파랑, 12시 주황, 22시 초록)를 재현합니다."""
-    st.session_state.records = {
-        "0_3": {"emotion": "😡 화남 / 스트레스", "color": "#E03131", "note": "스케치 예시 1"},
-        "0_11": {"emotion": "😢 슬픔 / 우울", "color": "#228BE6", "note": "스케치 예시 2"},
-        "0_12": {"emotion": "🎨 직접 색상 선택", "color": "#F76707", "note": "스케치 예시 3"},
-        "0_22": {"emotion": "🌿 평온 / 힐링", "color": "#66A80F", "note": "스케치 예시 4"},
+def inject_custom_css(selected_period: str):
+    """고급스러운 인스타 감성 폰트, 파스텔 기간 버튼, 은은한 네온 시간표 CSS를 적용합니다."""
+    active_map = {
+        "24 hours": (1, 1, "#E57A9B"),
+        "1 week": (1, 2, "#E0A44C"),
+        "1 month": (2, 1, "#55B383"),
+        "1 year": (2, 2, "#7A8CE8"),
     }
-    st.session_state.selected_day = 0
+    act_row, act_col, act_ring = active_map.get(selected_period, (1, 1, "#E57A9B"))
+    row_plus = "+ div" if act_row == 1 else "+ div + div"
 
+    st.markdown(
+        f"""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Noto+Serif+KR:wght@400;500;600;700&display=swap');
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
 
-def load_period_sample_data(days: int):
-    """선택한 기간(1일/7일/30일/365일)에 맞춰 자연스러운 감정 샘플 데이터를 생성합니다."""
-    emotion_pool = [
-        ("😊 기쁨 / 행복", "#FFD43B"),
-        ("🥰 설렘 / 사랑", "#FF6B8B"),
-        ("🌿 평온 / 힐링", "#51CF66"),
-        ("😢 슬픔 / 우울", "#339AF0"),
-        ("😡 화남 / 스트레스", "#FF4D4D"),
-        ("😴 피곤 / 무기력", "#9775FA"),
-        ("🤔 집중 / 차분", "#20C997"),
-    ]
-    new_records = {}
-    rng = random.Random(42)
+        /* 전체 배경 및 기본 타이포그래피 */
+        html, body, [class*="css"] {{
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #2D272B;
+        }}
 
-    for d in range(days):
-        sample_count = rng.randint(10, 17) if days <= 7 else rng.randint(6, 12)
-        hours = rng.sample(range(1, 25), sample_count)
-        dominant_idx = (d // max(1, days // 7)) % len(emotion_pool)
-        for h in hours:
-            if rng.random() < 0.55:
-                emo, col = emotion_pool[dominant_idx]
-            else:
-                emo, col = rng.choice(emotion_pool)
-            new_records[f"{d}_{h}"] = {
-                "emotion": emo,
-                "color": col,
-                "note": f"Day {d + 1} - {h}시 기록",
-            }
-    st.session_state.records = new_records
-    st.session_state.selected_day = 0
+        [data-testid="stAppViewContainer"] {{
+            background: radial-gradient(circle at 12% 15%, #FFF5F8 0%, #FDFBF7 45%, #F4F7FF 100%);
+        }}
+
+        [data-testid="stSidebar"] {{
+            background: linear-gradient(180deg, #FFF9FB 0%, #F8F6FF 100%);
+            border-right: 1px solid rgba(226, 208, 224, 0.55);
+        }}
+
+        .block-container {{
+            padding-top: 2rem;
+            padding-bottom: 2.5rem;
+            max-width: 1180px;
+        }}
+
+        /* 인스타 감성 에디토리얼 타이틀 */
+        .hero-title {{
+            font-family: 'Cormorant Garamond', 'Noto Serif KR', serif;
+            font-size: clamp(2.1rem, 4vw, 3.0rem);
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            color: #241E22;
+            line-height: 1.15;
+            margin-bottom: 0.35rem;
+        }}
+
+        .hero-subtitle {{
+            font-family: 'Cormorant Garamond', Georgia, serif;
+            font-style: italic;
+            font-size: clamp(1.08rem, 1.8vw, 1.32rem);
+            color: #7A6B74;
+            letter-spacing: 0.01em;
+            margin-bottom: 1.6rem;
+        }}
+
+        .section-heading-editorial {{
+            font-family: 'Cormorant Garamond', 'Noto Serif KR', serif;
+            font-size: clamp(1.45rem, 2.3vw, 1.85rem);
+            font-weight: 600;
+            color: #2A2226;
+            letter-spacing: 0.01em;
+            margin-bottom: 0.75rem;
+        }}
+
+        .sidebar-section-label {{
+            font-family: 'Noto Serif KR', 'Pretendard', serif;
+            font-size: 0.96rem;
+            font-weight: 600;
+            color: #3D3238;
+            margin-bottom: 0.45rem;
+            letter-spacing: 0.02em;
+        }}
+
+        .question-prompt {{
+            font-family: 'Noto Serif KR', 'Pretendard', serif;
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: #2F252A;
+            margin-top: 0.4rem;
+            margin-bottom: 0.65rem;
+        }}
+
+        /* 사이드바: 조회 기간 파스텔 둥근 박스 버튼 4종 */
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div button,
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div + div button {{
+            font-family: 'Cormorant Garamond', serif !important;
+            font-size: 1.05rem !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.02em !important;
+            border-radius: 16px !important;
+            padding: 0.55rem 0.4rem !important;
+            transition: all 0.22s ease !important;
+        }}
+
+        /* 24 hours - 파스텔 블러쉬 핑크 */
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div [data-testid="stColumn"]:nth-child(1) button,
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div [data-testid="column"]:nth-child(1) button {{
+            background: linear-gradient(135deg, #FFE5EC 0%, #FFD6E2 100%) !important;
+            color: #6B2D41 !important;
+            border: 1.5px solid #F7B5C8 !important;
+        }}
+
+        /* 1 week - 파스텔 크림 피치 */
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div [data-testid="stColumn"]:nth-child(2) button,
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div [data-testid="column"]:nth-child(2) button {{
+            background: linear-gradient(135deg, #FFF3D6 0%, #FFE7BA 100%) !important;
+            color: #6B4C1E !important;
+            border: 1.5px solid #F5CF8E !important;
+        }}
+
+        /* 1 month - 파스텔 세이지 민트 */
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div + div [data-testid="stColumn"]:nth-child(1) button,
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div + div [data-testid="column"]:nth-child(1) button {{
+            background: linear-gradient(135deg, #E2F7EC 0%, #CBEFDE 100%) !important;
+            color: #245740 !important;
+            border: 1.5px solid #9AD9BC !important;
+        }}
+
+        /* 1 year - 파스텔 라벤더 스카이 */
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div + div [data-testid="stColumn"]:nth-child(2) button,
+        [data-testid="stSidebar"] div:has(.period-section-anchor) + div + div [data-testid="column"]:nth-child(2) button {{
+            background: linear-gradient(135deg, #E6EAFF 0%, #D6DEFF 100%) !important;
+            color: #323D73 !important;
+            border: 1.5px solid #ACB8F7 !important;
+        }}
+
+        /* 현재 선택된 기간 버튼 강조 링 */
+        [data-testid="stSidebar"] div:has(.period-section-anchor) {row_plus} [data-testid="stColumn"]:nth-child({act_col}) button,
+        [data-testid="stSidebar"] div:has(.period-section-anchor) {row_plus} [data-testid="column"]:nth-child({act_col}) button {{
+            box-shadow: 0 0 0 2.5px {act_ring}, 0 6px 14px rgba(120, 100, 130, 0.18) !important;
+            transform: translateY(-1px);
+        }}
+
+        /* 5x5 시간표 버튼: 파스텔 배경 + 은은한 네온 테두리 */
+        div:has(.grid-section-anchor) + div button,
+        div:has(.grid-section-anchor) + div + div button,
+        div:has(.grid-section-anchor) + div + div + div button,
+        div:has(.grid-section-anchor) + div + div + div + div button,
+        div:has(.grid-section-anchor) + div + div + div + div + div button {{
+            background: linear-gradient(145deg, #FFF7FB 0%, #F4F7FF 100%) !important;
+            color: #3B3038 !important;
+            font-family: 'Pretendard', sans-serif !important;
+            font-weight: 600 !important;
+            font-size: 0.88rem !important;
+            border-radius: 14px !important;
+            border: 1.5px solid rgba(203, 166, 255, 0.85) !important;
+            box-shadow:
+                0 0 8px rgba(255, 163, 207, 0.42),
+                0 0 14px rgba(150, 204, 255, 0.38),
+                inset 0 0 8px rgba(255, 255, 255, 0.9) !important;
+            transition: all 0.2s ease !important;
+        }}
+
+        div:has(.grid-section-anchor) + div button:hover,
+        div:has(.grid-section-anchor) + div + div button:hover,
+        div:has(.grid-section-anchor) + div + div + div button:hover,
+        div:has(.grid-section-anchor) + div + div + div + div button:hover,
+        div:has(.grid-section-anchor) + div + div + div + div + div button:hover {{
+            background: linear-gradient(145deg, #FFEBF4 0%, #E8F0FF 100%) !important;
+            border-color: #FF8EC7 !important;
+            box-shadow:
+                0 0 12px rgba(255, 130, 195, 0.72),
+                0 0 22px rgba(130, 188, 255, 0.62) !important;
+            transform: translateY(-1.5px);
+        }}
+
+        /* 5x5 중앙 배지 */
+        .center-badge {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 42px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #FFD6E7 0%, #FBE8FF 50%, #D8E8FF 100%);
+            border: 1.5px solid rgba(214, 178, 255, 0.85);
+            box-shadow: 0 0 10px rgba(255, 175, 215, 0.45);
+            color: #4A3846;
+            font-family: 'Cormorant Garamond', serif;
+            font-weight: 700;
+            font-size: 0.95rem;
+            letter-spacing: 0.04em;
+        }}
+
+        /* 시간 칸 하단 감정·색상 미리보기 칩 */
+        .slot-preview {{
+            border-radius: 10px;
+            padding: 3px 6px;
+            text-align: center;
+            font-size: 0.74rem;
+            font-weight: 600;
+            margin-top: -6px;
+            margin-bottom: 8px;
+            letter-spacing: 0.01em;
+            transition: all 0.2s ease;
+        }}
+
+        .slot-empty {{
+            background: rgba(255, 245, 250, 0.65);
+            color: #B4A5AE;
+            border: 1px dashed rgba(210, 185, 215, 0.65);
+        }}
+
+        @media (max-width: 768px) {{
+            .block-container {{
+                padding-left: 0.9rem;
+                padding-right: 0.9rem;
+            }}
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def create_shape_mask(size: int, shape_name: str) -> Image.Image:
@@ -193,24 +311,24 @@ def create_shape_mask(size: int, shape_name: str) -> Image.Image:
     ss_size = size * 2
     mask = Image.new("L", (ss_size, ss_size), 0)
 
-    if shape_name == "둥근 사각형 (기본)":
+    if shape_name == "Rounded Square":
         draw = ImageDraw.Draw(mask)
         pad = int(ss_size * 0.04)
-        radius = int(ss_size * 0.14)
+        radius = int(ss_size * 0.15)
         draw.rounded_rectangle(
             [pad, pad, ss_size - pad, ss_size - pad], radius=radius, fill=255
         )
 
-    elif shape_name == "원형 (Circle)":
+    elif shape_name == "Circle":
         draw = ImageDraw.Draw(mask)
         pad = int(ss_size * 0.04)
         draw.ellipse([pad, pad, ss_size - pad, ss_size - pad], fill=255)
 
-    elif shape_name == "별 (Star)":
+    elif shape_name == "Star":
         draw = ImageDraw.Draw(mask)
         cx, cy = ss_size / 2, ss_size / 2
         outer_r = ss_size * 0.46
-        inner_r = outer_r * 0.42
+        inner_r = outer_r * 0.43
         points = []
         for i in range(10):
             angle = -math.pi / 2 + i * (math.pi / 5)
@@ -218,7 +336,7 @@ def create_shape_mask(size: int, shape_name: str) -> Image.Image:
             points.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
         draw.polygon(points, fill=255)
 
-    elif shape_name == "하트 (Heart)":
+    elif shape_name == "Heart":
         y_idx, x_idx = np.ogrid[:ss_size, :ss_size]
         x = (x_idx - ss_size / 2) / (ss_size * 0.38)
         y = (ss_size * 0.46 - y_idx) / (ss_size * 0.38)
@@ -226,7 +344,7 @@ def create_shape_mask(size: int, shape_name: str) -> Image.Image:
         arr = np.where(heart_eq <= 0, 255, 0).astype(np.uint8)
         mask = Image.fromarray(arr, mode="L")
 
-    elif shape_name == "네잎클로버 (Clover)":
+    elif shape_name == "Clover":
         y_idx, x_idx = np.ogrid[:ss_size, :ss_size]
         x = (x_idx - ss_size / 2) / (ss_size * 0.46)
         y = (y_idx - ss_size / 2) / (ss_size * 0.46)
@@ -243,16 +361,14 @@ def generate_emotion_palette(
     records: dict,
     days_range: int,
     shape_name: str,
-    power: float = 2.1,
-    blur_radius: int = 8,
-    canvas_size: int = 480,
-) -> tuple[Image.Image, list[dict]]:
+    canvas_size: int = 500,
+) -> Image.Image:
     """
     기록된 (날짜, 시간, 색상) 좌표를 기반으로 역거리 가중 보간(IDW) 그라데이션을 생성합니다.
-    기록되지 않은 칸도 주변 기록 색상이 자연스럽게 확산되어 흰색 공백을 최소화합니다.
+    색상 경계 선명도를 최저(power=1.2)로 설정하고 가우시안 블렌딩(radius=18)을 적용해
+    흰색 공백 없이 수채화처럼 부드럽게 번지는 그라데이션을 만듭니다.
     """
     points = []
-    matched_records = []
 
     for key, val in records.items():
         day_str, hour_str = key.split("_")
@@ -260,7 +376,6 @@ def generate_emotion_palette(
         hour_idx = int(hour_str)
 
         if 0 <= day_idx < days_range and 1 <= hour_idx <= 24:
-            matched_records.append(val)
             rgb = hex_to_rgb(val["color"])
             if days_range == 1:
                 nx, ny = HOUR_TO_5X5_COORD[hour_idx]
@@ -269,11 +384,12 @@ def generate_emotion_palette(
                 ny = (hour_idx - 1) / 23.0
             points.append((nx, ny, rgb))
 
+    # 기록이 전혀 없을 때 은은한 파스텔 수채화 베이스 반환
     if not points:
         y_grid, x_grid = np.mgrid[0:canvas_size, 0:canvas_size] / float(canvas_size)
-        r = (235 + 15 * x_grid).astype(np.uint8)
-        g = (238 + 12 * y_grid).astype(np.uint8)
-        b = (248 - 10 * x_grid).astype(np.uint8)
+        r = (250 - 12 * y_grid + 4 * x_grid).astype(np.uint8)
+        g = (232 + 10 * x_grid - 6 * y_grid).astype(np.uint8)
+        b = (242 + 12 * y_grid).astype(np.uint8)
         base_img = Image.fromarray(np.dstack([r, g, b]), mode="RGB")
     else:
         if len(points) > 120:
@@ -298,9 +414,11 @@ def generate_emotion_palette(
         lin = np.linspace(0.0, 1.0, canvas_size, dtype=np.float32)
         grid_x, grid_y = np.meshgrid(lin, lin)
 
+        # 항상 색상 경계 선명도 최저(power=1.2) + 넓은 확산 반경(0.014)으로 수채화 번짐 구현
+        power = 1.2
         dx = grid_x[:, :, None] - coords[None, None, :, 0]
         dy = grid_y[:, :, None] - coords[None, None, :, 1]
-        dist_sq = dx**2 + dy**2 + 0.006
+        dist_sq = dx**2 + dy**2 + 0.014
         weights = 1.0 / np.power(dist_sq, power / 2.0)
 
         weight_sum = np.sum(weights, axis=2, keepdims=True)
@@ -310,137 +428,182 @@ def generate_emotion_palette(
         blended_rgb = np.clip(blended_rgb, 0, 255).astype(np.uint8)
 
         base_img = Image.fromarray(blended_rgb, mode="RGB")
-        if blur_radius > 0:
-            base_img = base_img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        base_img = base_img.filter(ImageFilter.GaussianBlur(radius=18))
 
     rgba_img = base_img.convert("RGBA")
     shape_mask = create_shape_mask(canvas_size, shape_name)
     rgba_img.putalpha(shape_mask)
-    return rgba_img, matched_records
+    return rgba_img
 
 
 # ---------------------------------------------------------
-# 4. 메인 UI 구성
+# 4. 초기화 확인 팝업 다이얼로그
+# ---------------------------------------------------------
+if hasattr(st, "dialog"):
+
+    @st.dialog("초기화 확인")
+    def show_reset_dialog():
+        st.write("정말 초기화 하시겠습니다? 한번 초기화하면 되돌릴 수 없습니다.")
+        col_yes, col_no = st.columns(2)
+        with col_yes:
+            if st.button("초기화", type="primary", use_container_width=True):
+                st.session_state.records = {}
+                st.session_state.selected_hour = 1
+                st.session_state.selected_day = 0
+                st.rerun()
+        with col_no:
+            if st.button("취소", use_container_width=True):
+                st.rerun()
+
+
+# ---------------------------------------------------------
+# 5. 메인 UI 구성
 # ---------------------------------------------------------
 def main():
     init_session_state()
+    inject_custom_css(st.session_state.selected_period)
 
-    st.markdown('<div class="main-title">🎨 감정 팔레트 (Emotion Palette)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero-title">Emotion Palette</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="sub-title">매시간 기록한 감정과 색상이 좌표 위에서 어우러져 나만의 그라데이션 아트가 됩니다.</div>',
+        '<div class="hero-subtitle">Mapped hour by hour, your moments melt into a masterpiece.</div>',
         unsafe_allow_html=True,
     )
 
+    # 사이드바 설정
     with st.sidebar:
-        st.header("⚙️ 팔레트 설정")
-        selected_range_label = st.selectbox(
-            "📅 조회 및 팔레트 범위",
-            list(RANGE_OPTIONS.keys()),
-            index=0,
-        )
-        days_range = RANGE_OPTIONS[selected_range_label]
+        st.markdown('<div class="sidebar-section-label">조회 기간</div>', unsafe_allow_html=True)
+        st.markdown('<div class="period-section-anchor"></div>', unsafe_allow_html=True)
 
+        p_row1 = st.columns(2, gap="small")
+        with p_row1[0]:
+            if st.button("24 hours", key="period_btn_24h", use_container_width=True):
+                st.session_state.selected_period = "24 hours"
+                st.rerun()
+        with p_row1[1]:
+            if st.button("1 week", key="period_btn_1w", use_container_width=True):
+                st.session_state.selected_period = "1 week"
+                st.rerun()
+
+        p_row2 = st.columns(2, gap="small")
+        with p_row2[0]:
+            if st.button("1 month", key="period_btn_1m", use_container_width=True):
+                st.session_state.selected_period = "1 month"
+                st.rerun()
+        with p_row2[1]:
+            if st.button("1 year", key="period_btn_1y", use_container_width=True):
+                st.session_state.selected_period = "1 year"
+                st.rerun()
+
+        days_range = next(
+            item["days"]
+            for item in PERIOD_OPTIONS
+            if item["label"] == st.session_state.selected_period
+        )
+
+        st.markdown("<div style='height: 0.6rem;'></div>", unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-section-label">팔레트 모형</div>', unsafe_allow_html=True)
         selected_shape = st.selectbox(
-            "✨ 팔레트 모형 선택",
+            "팔레트 모형",
             SHAPE_OPTIONS,
             index=0,
+            label_visibility="collapsed",
         )
 
-        with st.expander("🎛️ 그라데이션 번짐 조절", expanded=False):
-            spread_power = st.slider(
-                "색상 경계 선명도 (낮을수록 넓게 퍼짐)",
-                min_value=1.2,
-                max_value=4.0,
-                value=2.1,
-                step=0.1,
-            )
-            blur_amount = st.slider(
-                "수채화 블렌딩 강도",
-                min_value=0,
-                max_value=20,
-                value=8,
-                step=1,
-            )
-
         st.divider()
-        st.subheader("🧪 빠른 테스트 & 시연 도구")
-        if st.button("✏️ 스케치 예시 재현 (빨강·파랑·주황·초록)", use_container_width=True):
-            load_sketch_example()
-            st.rerun()
 
-        if st.button(f"🌈 {selected_range_label} 샘플 채우기", use_container_width=True):
-            load_period_sample_data(days_range)
-            st.rerun()
+        if st.button("전체 기록 초기화", use_container_width=True):
+            if hasattr(st, "dialog"):
+                show_reset_dialog()
+            else:
+                st.session_state.confirm_reset_fallback = True
 
-        if st.button("🗑️ 전체 기록 초기화", use_container_width=True):
-            st.session_state.records = {}
-            st.rerun()
+        if st.session_state.confirm_reset_fallback:
+            st.warning("정말 초기화 하시겠습니다? 한번 초기화하면 되돌릴 수 없습니다.")
+            fb_c1, fb_c2 = st.columns(2)
+            with fb_c1:
+                if st.button("초기화", type="primary", use_container_width=True):
+                    st.session_state.records = {}
+                    st.session_state.confirm_reset_fallback = False
+                    st.rerun()
+            with fb_c2:
+                if st.button("취소", use_container_width=True):
+                    st.session_state.confirm_reset_fallback = False
+                    st.rerun()
 
-        with st.expander("💾 기록 데이터 백업 / 불러오기"):
+        with st.expander("데이터 백업 / 불러오기"):
             json_str = json.dumps(st.session_state.records, ensure_ascii=False, indent=2)
             st.download_button(
-                label="JSON 데이터 다운로드",
+                label="JSON 백업 다운로드",
                 data=json_str,
                 file_name="emotion_records.json",
                 mime="application/json",
                 use_container_width=True,
             )
-            uploaded_file = st.file_uploader("JSON 파일 불러오기", type=["json"])
+            uploaded_file = st.file_uploader("JSON 불러오기", type=["json"])
             if uploaded_file is not None:
                 try:
                     loaded = json.load(uploaded_file)
                     if isinstance(loaded, dict):
                         st.session_state.records = loaded
-                        st.success("데이터를 성공적으로 불러왔습니다!")
+                        st.success("기록을 불러왔습니다.")
                 except Exception:
                     st.error("올바른 JSON 파일이 아닙니다.")
 
+    # 메인 2단 반응형 레이아웃
     left_col, right_col = st.columns([1.15, 1.0], gap="large")
 
+    # -----------------------------------------------------
+    # 왼쪽 영역: 5x5 시간표 그리드 및 감정/색상 입력
+    # -----------------------------------------------------
     with left_col:
-        st.subheader("1️⃣ 시간별 감정 및 색상 기록")
-
         if days_range > 1:
-            day_idx = st.slider(
-                "기록할 날짜 선택 (1일차 = 오늘)",
-                min_value=1,
-                max_value=days_range,
-                value=min(st.session_state.selected_day + 1, days_range),
-            ) - 1
+            day_idx = (
+                st.slider(
+                    "기록할 날짜 선택 (Day 1 = 오늘)",
+                    min_value=1,
+                    max_value=days_range,
+                    value=min(st.session_state.selected_day + 1, days_range),
+                )
+                - 1
+            )
             st.session_state.selected_day = day_idx
         else:
             st.session_state.selected_day = 0
 
         current_day = st.session_state.selected_day
 
-        st.caption("아래 **5×5 시간표(1시~24시)**에서 기록할 시간 칸을 클릭하세요.")
+        st.markdown('<div class="grid-section-anchor"></div>', unsafe_allow_html=True)
 
         for row in GRID_5X5_LAYOUT:
             cols = st.columns(5, gap="small")
             for c_idx, hr in enumerate(row):
                 with cols[c_idx]:
                     if hr is None:
-                        st.markdown('<div class="center-badge">🎨 24H</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="center-badge">24H</div>', unsafe_allow_html=True)
                     else:
                         rec_key = f"{current_day}_{hr}"
                         rec = st.session_state.records.get(rec_key)
                         is_selected = st.session_state.selected_hour == hr
-                        btn_label = f"{'👉 ' if is_selected else ''}{hr}시"
-                        if st.button(btn_label, key=f"grid_btn_{current_day}_{hr}", use_container_width=True):
+                        btn_label = f"✦ {hr}시" if is_selected else f"{hr}시"
+                        if st.button(
+                            btn_label,
+                            key=f"grid_btn_{current_day}_{hr}",
+                            use_container_width=True,
+                        ):
                             st.session_state.selected_hour = hr
                             st.rerun()
 
                         if rec:
                             bg = rec["color"]
                             fg = get_contrast_text_color(bg)
-                            emo_short = rec["emotion"].split()[0]
+                            emo_text = rec["emotion"]
                             st.markdown(
-                                f'<div class="slot-preview" style="background:{bg}; color:{fg};">{emo_short}</div>',
+                                f'<div class="slot-preview" style="background:{bg}; color:{fg}; box-shadow: 0 2px 8px {bg}66;">{emo_text}</div>',
                                 unsafe_allow_html=True,
                             )
                         else:
                             st.markdown(
-                                '<div class="slot-preview" style="background:transparent; color:#999;">미기록</div>',
+                                '<div class="slot-preview slot-empty">·</div>',
                                 unsafe_allow_html=True,
                             )
 
@@ -450,8 +613,12 @@ def main():
         target_key = f"{current_day}_{target_hr}"
         existing = st.session_state.records.get(target_key)
 
-        day_label = f"{current_day + 1}일차 " if days_range > 1 else "오늘 "
-        st.markdown(f"**✏️ {day_label}{target_hr}시 감정 입력**")
+        prompt_text = (
+            f"당신의 {target_hr}시는 어떤가요?"
+            if days_range == 1
+            else f"Day {current_day + 1} · 당신의 {target_hr}시는 어떤가요?"
+        )
+        st.markdown(f'<div class="question-prompt">{prompt_text}</div>', unsafe_allow_html=True)
 
         in_col1, in_col2 = st.columns([1.4, 1.0])
         with in_col1:
@@ -459,7 +626,7 @@ def main():
             if existing and existing["emotion"] in PRESET_EMOTIONS:
                 default_emo_idx = list(PRESET_EMOTIONS.keys()).index(existing["emotion"])
             chosen_emotion = st.selectbox(
-                "대표 감정 선택",
+                "대표 감정",
                 list(PRESET_EMOTIONS.keys()),
                 index=default_emo_idx,
             )
@@ -472,84 +639,55 @@ def main():
                 initial_hex = preset_hex
 
             chosen_color = st.color_picker(
-                "세부 색상 선택 (컬러 피커)",
+                "순간의 색깔",
                 value=initial_hex,
                 key=f"cp_{target_key}_{chosen_emotion}",
             )
 
-        note_text = st.text_input(
-            "한 줄 메모 (선택 사항)",
-            value=existing["note"] if existing else "",
-            placeholder="이 시간의 기분이나 이유를 짧게 남겨보세요.",
-        )
-
         act_col1, act_col2 = st.columns(2)
         with act_col1:
-            if st.button("💾 이 시간 감정 저장하기", type="primary", use_container_width=True):
+            if st.button("기록 저장하기", type="primary", use_container_width=True):
                 st.session_state.records[target_key] = {
                     "emotion": chosen_emotion,
                     "color": chosen_color,
-                    "note": note_text,
                 }
                 if target_hr < 24:
                     st.session_state.selected_hour = target_hr + 1
                 st.rerun()
 
         with act_col2:
-            if st.button("🧹 선택한 시간 기록 지우기", use_container_width=True):
+            if st.button("선택 시간 지우기", use_container_width=True):
                 if target_key in st.session_state.records:
                     del st.session_state.records[target_key]
                     st.rerun()
 
+    # -----------------------------------------------------
+    # 오른쪽 영역: My Emotion Palette 결과 및 PNG 다운로드
+    # -----------------------------------------------------
     with right_col:
-        st.subheader(f"2️⃣ 나만의 감정 팔레트 ({selected_range_label})")
+        st.markdown(
+            '<div class="section-heading-editorial">My Emotion Palette</div>',
+            unsafe_allow_html=True,
+        )
 
-        palette_img, matched_records = generate_emotion_palette(
+        palette_img = generate_emotion_palette(
             records=st.session_state.records,
             days_range=days_range,
             shape_name=selected_shape,
-            power=spread_power,
-            blur_radius=blur_amount,
-            canvas_size=480,
+            canvas_size=500,
         )
 
-        st.image(
-            palette_img,
-            caption=f"모형: {selected_shape} | 기록된 시간: {len(matched_records)}개",
-            use_container_width=True,
-        )
+        st.image(palette_img, use_container_width=True)
 
         img_buffer = io.BytesIO()
         palette_img.save(img_buffer, format="PNG")
         st.download_button(
-            label="🖼️ 감정 팔레트 이미지 저장 (PNG)",
+            label="Save Palette (PNG)",
             data=img_buffer.getvalue(),
-            file_name=f"emotion_palette_{days_range}d.png",
+            file_name=f"my_emotion_palette_{days_range}d.png",
             mime="image/png",
             use_container_width=True,
         )
-
-        if matched_records:
-            emotion_counts = {}
-            for item in matched_records:
-                emo = item["emotion"]
-                emotion_counts[emo] = emotion_counts.get(emo, 0) + 1
-
-            top_emotion = max(emotion_counts.items(), key=lambda x: x[1])[0]
-            total_slots = days_range * 24
-            fill_rate = (len(matched_records) / total_slots) * 100
-
-            st.markdown(
-                f"""
-                <div class="stat-card">
-                    <div>📊 <b>기간 내 기록 수:</b> {len(matched_records)} / {total_slots}시간 ({fill_rate:.1f}%)</div>
-                    <div style="margin-top:4px;">🏆 <b>가장 많이 느낀 감정:</b> {top_emotion} ({emotion_counts[top_emotion]}회)</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        else:
-            st.info("아직 기록된 감정이 없습니다. 왼쪽 5×5 시간표에서 색상을 기록하거나 사이드바의 '스케치 예시 재현' 버튼을 눌러보세요!")
 
 
 if __name__ == "__main__":
